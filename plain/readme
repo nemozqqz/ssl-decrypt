@@ -1,0 +1,40 @@
+参考了 golang 的crypto 代码
+https://golang.org/src/crypto/tls/prf.go
+
+prf: pseudo random function 
+prf(secret,label,seed),可以产生任意长度的输出
+
+48字节的pre master secret,32字节的client random和server random经过prf函数生成48字节的master secret，
+master secret和client random、server random又经过prf函数去生成client和server的MAC,KEY,IV
+
+wireshark 自己就带有解密SSL/TLS/DTLS流量的功能,只需提供RSA private key,wireshark官网也提供了样例(snakeoil)
+
+
+pre master secret 头两个字节与版本的对照
+0300 SSL3.0
+0301 TLS1.0
+0302 TLS1.1
+0301 TLS1.2
+0100 DTLS1.0 (cisco anyconnect 是全随机生成的)
+
+client random 和 server random 的前4个字节是时间，用来防止重放攻击,后28字节随机
+
+cisco anyconnect先在TLS上通讯，后转到DTLS
+TLS通讯的最后，client会发送48字节的X-DTLS-Master-Secret给server,server会回32字节的X-DTLS-Session-ID给client,所以在DTLS的握手阶段，只看到client hello和server hello,没有key exchange这步,与标准的DTLS过程不同
+
+X_DTLS-Session-ID 与DTLS的server hello阶段Session-ID相同
+
+X-DTLS-Master-Secret 究竟是DTLS的master secret 还是 pre master secret???
+
+
+http://nmav.gnutls.org/2013/11/inside-ssl-vpn-protocol.html
+
+将X-DTLS-Master-Secret作为master secret时,流量解密出来是不是明文，但能看出解密结果经过了填充。而且解密的流量头可以看到wlan0,cscotun0这种有意义的字符串
+重复出现的十六进制 03 01 00 00 01 00 00 00 00 00 xx 05 其中xx取值01,02,03,04...
+基本可以确定X-DTLS-Master-Secet就是master secret
+
+openconnect 的源码中X-DTLS-Master-Secret的值为结构体vpninfo->dtls_secret，而vpn->dtls_secret又被赋值给了vpninfo->dtls_session->master_key
+
+SSL里的填充很奇怪，如果差5个字节的话会填充5个0x04,而不是0x05
+
+需要看的源码：GNUTLS,openconnect(兼容cisco anyconnect)
